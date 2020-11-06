@@ -1,0 +1,28 @@
+class P (process):            # define poller process class
+  def setup(rs): pass         # take a set of responder processes
+  def run():
+    self.t = logical_clock()  # get logical clock time as question id
+    send(('question', question(), t), to= rs)
+    await each(r in rs, has= some(received(('reply',_,_t), from_=_r)))
+    output('-- received Y from:', setof(r, received(('reply','Y',_t), from_= r)))
+    send(('outcome', outcome()), to= rs)
+
+  def question(): return 'Did you attend RV (Y/N)?' # create question
+  def outcome(): return len(setof(r, received(('reply','Y',_t), from_= r)))
+
+class R (process):            # define responder (i.e., pollee) process class
+  def run():
+    await some(received(('outcome', o)))
+    output('== received outcome:', o)
+  def receive(msg=('question', q, t), from_= p):
+    send(('reply', reply(q), t), to= p)
+
+  def reply(q): import random; return random.choice(['Y','N']) # create reply
+
+def main():
+  config(clock = lamport)     # use Lamport clock
+  config(channel = reliable)  # use reliable channels
+  rs = new(R, [], num= 10)    # create and set up 10 responders
+  p = new(P, [rs])            # create and set up poller process p
+  start(rs)                   # start responders
+  start(p)                    # start poller
