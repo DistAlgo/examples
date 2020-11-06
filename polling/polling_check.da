@@ -1,0 +1,49 @@
+import polling  # import the module, polling.da, to be checked 
+
+class P (process, polling.P):  # extend process P in module polling
+  def setup(checker,rs): super().setup(rs)  # set up checker and original rs 
+  def send(m, to):             # override send to send information to checker
+    super().send(m, to)        # do original send
+    super().send(('sent', m, to, logical_clock()), to= checker) # send to checker
+  def receive(msg= m, from_= fr):  # add a receive matching any message received
+    super().send(('rcvd', m, fr, logical_clock()), to= checker) # send to checker
+
+class R (process, polling.R):  # as above but extend process R instead
+  def setup(checker): super().setup()  # as above but set up only checker
+  def send(m, to):             # as above but not send logical time to checker
+    super().send(m, to)
+    super().send(('sent', m, to), to= checker)
+  def receive(msg= m, from_= fr):  # as above but not send logical time to checker
+    super().send(('rcvd', m, fr), to= checker)
+
+class Checker (process):
+  def setup(p,rs): pass        # pass in processes p and rs
+  def run(): 
+    await each(r in rs, has= some(received(('rcvd', ('outcome',_), _), from_=_r)))
+    output('~~ polling ended. checking safety:', S1(), S2())
+
+  def S1():
+    # some p.sent ('question', _, t), p.sent ('outcome', _) at t1 has
+    #   each r in rs has some =p.received('reply',_,=t) from =r at t2 has t1>t2
+    return some(received(('sent', ('question',_,t), _, _), from_=_p), 
+                received(('sent', ('outcome',_), _, t1), from_=_p), has=
+                each(r in rs, has=
+                     some(received(('rcvd', ('reply',_,_t), _r, t2), from_=_p),
+                          has= t1 > t2)))
+  def S2():
+    # some p.sent ('outcome', o) has
+    #   each r in rs has some =r.received ('outcome', =o) from =r
+    return some(received(('sent', ('outcome',o), _, _), from_=_p), has=
+                each(r in rs, has= 
+                     some(received(('rcvd', ('outcome',_o), _), from_=_r))))
+
+def main():
+  config(clock = lamport)
+  config(channel = reliable)
+  checker = new(Checker)           # create checker
+  rs = new(R, [checker], num= 10)  # as in polling but add checker
+  p = new(P, [checker, rs])        # as in polling but add checker
+  setup(checker, [p,rs])           # setup checker with p and rs
+  start(checker)                   # start checker
+  start(rs)
+  start(p)
