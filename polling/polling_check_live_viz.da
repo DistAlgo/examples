@@ -1,0 +1,48 @@
+import threading
+import time
+from polling_check import P,R,Checker
+TIMEOUTS = {'q-r':0.00001, 'q-o':0.0001, 'total':1}
+                                      # map of timeout names to time bounds
+class Checker (process, Checker):
+  def setup(p,rs): pass
+  def run():
+    if await each(r in rs, has= 
+                  some(received(('rcvd', ('outcome',_), _), from_=_r))): pass
+    elif timeout(TIMEOUTS['total']):  # entire execution times out
+      output('!! total timeout receiving outcome by all pollees')
+    output('~~ polling ended. checking safety:', super().S1(), super().S2())
+
+  def receive(msg=('sent', ('question',_,t), ps, _)):  # at 1st of two events
+    runtimer('q-r',t,ps)  # start timer 'q-r' that starts at this event
+    runtimer('q-o',t,ps)  # start timer 'q-o' that starts at this event
+
+  def runtimer(*args):   # run timer in a separate thread passing in all args
+    threading.Thread(target=timer, args=args).start()
+  def timer(name, *rest):  # timer, taking timer name and rest of arguments
+    time.sleep(TIMEOUTS[name])  # sleep the time bound for the timer name
+    send(('timeout', name, *rest), to= self)  # send timeout to chcker itself
+
+  def receive(msg=('timeout', 'q-r', t, ps)):  # at timoeout for 'q-r'
+    if not some(received(('rcvd', ('reply',_,_t), _, _), from_=_)): # check 2nd event
+      output('!! L1 timeout receiving the first reply by the poller', t, ps)
+  def receive(msg=('timeout', 'q-o', t, ps)):  # at timoeout for 'q-o'
+    if not each(r in rs, has=  # check 2nd event
+                some(received(('rcvd', ('outcome',_), _), from_=_r))): 
+      output('!! L2 timeout receiving outcome by all pollees', t, ps, r)
+
+def main():
+  config(clock = lamport)
+  config(channel = reliable)
+  config(visualize = {
+    'colors': {
+      'P': 'orange',
+      'R': 'lightblue',
+      'sent': 'black',
+      'rcvd': 'blue'}})
+  checker = new(Checker)           # create checker
+  rs = new(R, [checker], num= 10)  # as in polling but add checker
+  p = new(P, [checker, rs])        # as in polling but add checker
+  setup(checker, [p,rs])           # setup checker with p and rs
+  start(checker)                   # start checker
+  start(rs)
+  start(p)
